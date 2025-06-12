@@ -1,80 +1,73 @@
+-- nigga
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
- 
-local ESP_ENABLED = true
-local MAX_DISTANCE = 1000
+
 local Boxes = {}
- 
--- Create or reuse a Drawing box
-local function CreateBoxForCharacter(character)
+local MAX_DISTANCE = 1000
+local ESP_ENABLED = true
+
+local function CreateBox(character)
     if Boxes[character] then return end
- 
     local box = Drawing.new("Square")
     box.Color = Color3.fromRGB(255, 0, 0)
     box.Thickness = 1
     box.Transparency = 1
     box.Filled = false
     box.Visible = false
- 
+
     Boxes[character] = box
- 
-    -- Auto-remove when character is deleted
+
     character.AncestryChanged:Connect(function(_, parent)
-        if not parent and Boxes[character] then
+        if not parent then
             box:Remove()
             Boxes[character] = nil
         end
     end)
 end
- 
--- Track a player's character
+
 local function SetupPlayer(player)
     if player == LocalPlayer then return end
- 
     player.CharacterAdded:Connect(function(character)
         task.delay(0.5, function()
             if character:FindFirstChild("HumanoidRootPart") then
-                CreateBoxForCharacter(character)
+                CreateBox(character)
             end
         end)
     end)
- 
+
     if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-        CreateBoxForCharacter(player.Character)
+        CreateBox(player.Character)
     end
 end
- 
--- Setup all current players
+
 for _, player in ipairs(Players:GetPlayers()) do
     SetupPlayer(player)
 end
 Players.PlayerAdded:Connect(SetupPlayer)
- 
--- RenderStepped: Update ESP boxes
+
 RunService.RenderStepped:Connect(function()
     if not ESP_ENABLED then return end
- 
     local camPos = Camera.CFrame.Position
- 
+
     for character, box in pairs(Boxes) do
         local hrp = character:FindFirstChild("HumanoidRootPart")
         local head = character:FindFirstChild("Head")
         local humanoid = character:FindFirstChildOfClass("Humanoid")
- 
+
         if character:IsDescendantOf(workspace) and hrp and head and humanoid and humanoid.Health > 0 then
             local distance = (camPos - hrp.Position).Magnitude
             if distance <= MAX_DISTANCE then
-                -- For R15: top = head + 0.5, bottom = HRP - 3
                 local headPos2D, headOnScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-                local footY = hrp.Position.Y - 3
-                local footPos2D, footOnScreen = Camera:WorldToViewportPoint(Vector3.new(hrp.Position.X, footY, hrp.Position.Z))
- 
+                local footPos3D = Vector3.new(hrp.Position.X, hrp.Position.Y - 3, hrp.Position.Z)
+                local footPos2D, footOnScreen = Camera:WorldToViewportPoint(footPos3D)
+
                 if headOnScreen and footOnScreen then
                     local height = math.abs(footPos2D.Y - headPos2D.Y)
                     local width = height / 2
- 
+
                     box.Size = Vector2.new(width, height)
                     box.Position = Vector2.new(headPos2D.X - width / 2, headPos2D.Y)
                     box.Visible = true
