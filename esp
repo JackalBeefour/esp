@@ -3,18 +3,13 @@ local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
-local MAX_DISTANCE = 1000
+local MAX_DISTANCE = 300 -- Lower this to improve performance if needed
 local ESPs = {}
-
--- Smooth rainbow function
-local function GetRainbowColor()
-	local t = tick()
-	return Color3.fromHSV((t % 5) / 5, 1, 1)
-end
 
 -- Create a single ESP box
 local function CreateBox()
 	local box = Drawing.new("Square")
+	box.Color = Color3.fromRGB(255, 0, 0)
 	box.Thickness = 1
 	box.Transparency = 1
 	box.Filled = false
@@ -29,7 +24,6 @@ local function SetupPlayer(player)
 	local box = CreateBox()
 	local connections = {}
 
-	-- Handle character added
 	local function OnCharacterAdded(character)
 		task.wait(0.5)
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
@@ -69,12 +63,12 @@ local function CleanupPlayer(player)
 	ESPs[player] = nil
 end
 
--- Set up all current players
+-- Setup all current players
 for _, player in ipairs(Players:GetPlayers()) do
 	SetupPlayer(player)
 end
 
--- Handle new/left players
+-- Handle new and leaving players
 Players.PlayerAdded:Connect(SetupPlayer)
 Players.PlayerRemoving:Connect(CleanupPlayer)
 
@@ -114,10 +108,23 @@ RunService.RenderStepped:Connect(function()
 			local width = height / 2
 			box.Size = Vector2.new(width, height)
 			box.Position = Vector2.new(top.X - width / 2, top.Y)
-			box.Color = GetRainbowColor()
 			box.Visible = true
 		else
 			box.Visible = false
 		end
+	end
+end)
+
+-- Debug: Print number of Drawing objects every 5 seconds
+task.spawn(function()
+	while true do
+		local total = 0
+		for _, v in pairs(getgc(true)) do
+			if typeof(v) == "table" and v.__type == "DrawingObject" then
+				total += 1
+			end
+		end
+		print("[DEBUG] Drawing objects in memory:", total)
+		task.wait(5)
 	end
 end)
