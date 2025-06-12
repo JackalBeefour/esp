@@ -3,10 +3,10 @@ local RunService = game:GetService("RunService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
-local MAX_DISTANCE = 300 -- Lower this to improve performance if needed
+local MAX_DISTANCE = 300
 local ESPs = {}
 
--- Create a single ESP box
+-- Create a new Drawing box
 local function CreateBox()
 	local box = Drawing.new("Square")
 	box.Color = Color3.fromRGB(255, 0, 0)
@@ -17,77 +17,87 @@ local function CreateBox()
 	return box
 end
 
--- Setup ESP for one player
-local function SetupPlayer(player)
-	if player == LocalPlayer or ESPs[player] then return end
+-- Cleanup ESP for a character
+local function Cleanup(character)
+	local data = ESPs[character]
+	if data then
+		data.box.Visible = false
+		data.box:Remove()
+		for _, conn in pairs(data.connections) do
+			pcall(function() conn:Disconnect() end)
+		end
+		ESPs[character] = nil
+	end
+end
+
+-- Setup ESP for a character
+local function SetupCharacter(character)
+	if ESPs[character] then return end
 
 	local box = CreateBox()
 	local connections = {}
 
-	local function OnCharacterAdded(character)
-		task.wait(0.5)
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			table.insert(connections, humanoid.Died:Connect(function()
-				box.Visible = false
-			end))
-		end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		table.insert(connections, humanoid.Died:Connect(function()
+			Cleanup(character)
+		end))
 	end
 
-	if player.Character then
-		OnCharacterAdded(player.Character)
-	end
-
-	table.insert(connections, player.CharacterAdded:Connect(OnCharacterAdded))
-	table.insert(connections, player.AncestryChanged:Connect(function(_, parent)
+	table.insert(connections, character.AncestryChanged:Connect(function(_, parent)
 		if not parent then
-			box.Visible = false
+			Cleanup(character)
 		end
 	end))
 
-	ESPs[player] = { box = box, connections = connections }
+	ESPs[character] = { box = box, connections = connections }
 end
 
--- Clean up ESP for player
-local function CleanupPlayer(player)
-	local data = ESPs[player]
-	if not data then return end
+-- Setup player to track character
+local function SetupPlayer(player)
+	if player == LocalPlayer then return end
 
-	data.box.Visible = false
-	data.box:Remove()
+	player.CharacterAdded:Connect(function(character)
+		task.wait(0.5)
+		SetupCharacter(character)
+	end)
 
-	for _, conn in ipairs(data.connections) do
-		pcall(function() conn:Disconnect() end)
+	if player.Character then
+		SetupCharacter(player.Character)
 	end
-
-	ESPs[player] = nil
 end
 
--- Setup all current players
+-- Cleanup on player leaving
+Players.PlayerRemoving:Connect(function(player)
+	if player.Character then
+		Cleanup(player.Character)
+	end
+end)
+
+-- Setup existing players
 for _, player in ipairs(Players:GetPlayers()) do
 	SetupPlayer(player)
 end
 
--- Handle new and leaving players
+-- Setup new players
 Players.PlayerAdded:Connect(SetupPlayer)
-Players.PlayerRemoving:Connect(CleanupPlayer)
 
--- Main ESP render loop
+-- Main render loop for ESP boxes
 RunService.RenderStepped:Connect(function()
 	local camPos = Camera.CFrame.Position
 
-	for player, data in pairs(ESPs) do
-		local char = player.Character
+	for character, data in pairs(ESPs) do
 		local box = data.box
 
-		if not char then
+		if not character or not character.Parent then
 			box.Visible = false
+			Cleanup(character)
 			continue
 		end
 
-		local hrp = char:FindFirstChild("HumanoidRootPart")
-		local head = char:FindFirstChild("Head")
-		local humanoid = char:FindFirstChildOfClass("Humanoid")
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		local head = character:FindFirstChild("Head")
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
 
 		if not hrp or not head or not humanoid or humanoid.Health <= 0 then
 			box.Visible = false
@@ -115,7 +125,7 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
--- Debug: Print number of Drawing objects every 5 seconds
+-- Optional: Debug print number of Drawing objects every 5 seconds
 task.spawn(function()
 	while true do
 		local total = 0
@@ -124,7 +134,7 @@ task.spawn(function()
 				total += 1
 			end
 		end
-		print("[DEBUG] Drawing objects in memory:", total)
+		print("[DEBUG] Drawing objects:", total)
 		task.wait(5)
 	end
 end)
