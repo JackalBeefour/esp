@@ -1,0 +1,147 @@
+-- settings
+local settings = {
+    defaultcolor = Color3.fromRGB(255, 0, 0),
+    teamcheck = false,
+    teamcolor = true,
+    chams = true
+};
+
+-- services
+local runService = game:GetService("RunService");
+local players = game:GetService("Players");
+
+-- variables
+local localPlayer = players.LocalPlayer;
+local camera = workspace.CurrentCamera;
+
+-- utility functions
+local newVector2, newColor3, newDrawing = Vector2.new, Color3.new, Drawing.new;
+local tan, rad = math.tan, math.rad;
+local round = function(...) local a = {}; for i,v in next, table.pack(...) do a[i] = math.round(v); end return unpack(a); end;
+local wtvp = function(...) local a, b = camera:WorldToViewportPoint(...) return newVector2(a.X, a.Y), b, a.Z end;
+
+local espCache = {};
+
+-- create ESP for a player
+local function createEsp(player)
+    local drawings = {};
+
+    drawings.box = newDrawing("Square");
+    drawings.box.Thickness = 1;
+    drawings.box.Filled = false;
+    drawings.box.Color = settings.defaultcolor; -- overridden later
+    drawings.box.Visible = false;
+    drawings.box.ZIndex = 2;
+
+    drawings.boxoutline = newDrawing("Square");
+    drawings.boxoutline.Thickness = 3;
+    drawings.boxoutline.Filled = false;
+    drawings.boxoutline.Color = newColor3();
+    drawings.boxoutline.Visible = false;
+    drawings.boxoutline.ZIndex = 1;
+
+    if settings.chams then
+        local highlight = Instance.new("Highlight");
+        highlight.Name = "ESP_Highlight";
+        highlight.FillTransparency = 0.5;
+        highlight.OutlineTransparency = 0;
+        highlight.Adornee = player.Character;
+        highlight.Parent = player.Character;
+        drawings.highlight = highlight;
+    end
+
+    espCache[player] = drawings;
+end
+
+-- remove ESP for a player
+local function removeEsp(player)
+    if rawget(espCache, player) then
+        for _, drawing in next, espCache[player] do
+            if typeof(drawing) == "Instance" and drawing:IsA("Highlight") then
+                drawing:Destroy();
+            elseif typeof(drawing) == "table" then
+                for _, d in next, drawing do
+                    d:Remove();
+                end
+            else
+                drawing:Remove();
+            end
+        end
+        espCache[player] = nil;
+    end
+end
+
+-- update ESP every frame
+local function updateEsp(player, esp)
+    local character = player and player.Character;
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local cframe = character:GetModelCFrame();
+        local position, visible, depth = wtvp(cframe.Position);
+        esp.box.Visible = visible;
+        esp.boxoutline.Visible = visible;
+
+        if visible then
+            local scaleFactor = 1 / (depth * tan(rad(camera.FieldOfView / 2)) * 2) * 1000;
+            local width, height = round(4 * scaleFactor, 5 * scaleFactor);
+            local x, y = round(position.X, position.Y);
+
+            esp.box.Size = newVector2(width, height);
+            esp.box.Position = newVector2(round(x - width / 2, y - height / 2));
+            esp.box.Color = Color3.fromRGB(255, 0, 0); -- always red box
+
+            esp.boxoutline.Size = esp.box.Size;
+            esp.boxoutline.Position = esp.box.Position;
+        end
+
+        -- Update highlight
+        if settings.chams and esp.highlight then
+            if not esp.highlight.Parent or esp.highlight.Parent ~= character then
+                esp.highlight:Destroy();
+                local newHighlight = Instance.new("Highlight");
+                newHighlight.Name = "ESP_Highlight";
+                newHighlight.FillTransparency = 0.5;
+                newHighlight.OutlineTransparency = 0;
+                newHighlight.Adornee = character;
+                newHighlight.Parent = character;
+                esp.highlight = newHighlight;
+            end
+            esp.highlight.FillColor = settings.teamcolor and player.TeamColor.Color or settings.defaultcolor;
+            esp.highlight.OutlineColor = Color3.new(0, 0, 0);
+        end
+    else
+        esp.box.Visible = false;
+        esp.boxoutline.Visible = false;
+        if esp.highlight then
+            esp.highlight.Adornee = nil;
+        end
+    end
+end
+
+-- manage players
+for _, player in next, players:GetPlayers() do
+    if player ~= localPlayer then
+        createEsp(player);
+    end
+end
+
+players.PlayerAdded:Connect(function(player)
+    if player ~= localPlayer then
+        createEsp(player);
+    end
+end)
+
+players.PlayerRemoving:Connect(function(player)
+    removeEsp(player);
+end)
+
+-- render loop
+runService:BindToRenderStep("esp", Enum.RenderPriority.Camera.Value, function()
+    for player, drawings in next, espCache do
+        if settings.teamcheck and player.Team == localPlayer.Team then
+            continue;
+        end
+        if drawings and player ~= localPlayer then
+            updateEsp(player, drawings);
+        end
+    end
+end)
