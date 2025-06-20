@@ -1,140 +1,103 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
+-- settings
+local settings = {
+   defaultcolor = Color3.fromRGB(255,0,0),
+   teamcheck = false,
+   teamcolor = true
+};
 
-local MAX_DISTANCE = 1000
-local ESPs = {}
+-- services
+local runService = game:GetService("RunService");
+local players = game:GetService("Players");
 
--- Create a new Drawing box
-local function CreateBox()
-	local box = Drawing.new("Square")
-	box.Color = Color3.fromRGB(255, 0, 0)
-	box.Thickness = 1
-	box.Transparency = 1
-	box.Filled = false
-	box.Visible = false
-	return box
+-- variables
+local localPlayer = players.LocalPlayer;
+local camera = workspace.CurrentCamera;
+
+-- functions
+local newVector2, newColor3, newDrawing = Vector2.new, Color3.new, Drawing.new;
+local tan, rad = math.tan, math.rad;
+local round = function(...) local a = {}; for i,v in next, table.pack(...) do a[i] = math.round(v); end return unpack(a); end;
+local wtvp = function(...) local a, b = camera.WorldToViewportPoint(camera, ...) return newVector2(a.X, a.Y), b, a.Z end;
+
+local espCache = {};
+local function createEsp(player)
+   local drawings = {};
+   
+   drawings.box = newDrawing("Square");
+   drawings.box.Thickness = 1;
+   drawings.box.Filled = false;
+   drawings.box.Color = settings.defaultcolor;
+   drawings.box.Visible = false;
+   drawings.box.ZIndex = 2;
+
+   drawings.boxoutline = newDrawing("Square");
+   drawings.boxoutline.Thickness = 3;
+   drawings.boxoutline.Filled = false;
+   drawings.boxoutline.Color = newColor3();
+   drawings.boxoutline.Visible = false;
+   drawings.boxoutline.ZIndex = 1;
+
+   espCache[player] = drawings;
 end
 
--- Cleanup ESP for a character
-local function Cleanup(character)
-	local data = ESPs[character]
-	if data then
-		data.box.Visible = false
-		data.box:Remove()
-		for _, conn in pairs(data.connections) do
-			pcall(function() conn:Disconnect() end)
-		end
-		ESPs[character] = nil
-	end
+local function removeEsp(player)
+   if rawget(espCache, player) then
+       for _, drawing in next, espCache[player] do
+           drawing:Remove();
+       end
+       espCache[player] = nil;
+   end
 end
 
--- Setup ESP for a character
-local function SetupCharacter(character)
-	if ESPs[character] then return end
+local function updateEsp(player, esp)
+   local character = player and player.Character;
+   if character then
+       local cframe = character:GetModelCFrame();
+       local position, visible, depth = wtvp(cframe.Position);
+       esp.box.Visible = visible;
+       esp.boxoutline.Visible = visible;
 
-	local box = CreateBox()
-	local connections = {}
+       if cframe and visible then
+           local scaleFactor = 1 / (depth * tan(rad(camera.FieldOfView / 2)) * 2) * 1000;
+           local width, height = round(4 * scaleFactor, 5 * scaleFactor);
+           local x, y = round(position.X, position.Y);
 
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		table.insert(connections, humanoid.Died:Connect(function()
-			Cleanup(character)
-		end))
-	end
+           esp.box.Size = newVector2(width, height);
+           esp.box.Position = newVector2(round(x - width / 2, y - height / 2));
+           esp.box.Color = settings.teamcolor and player.TeamColor.Color or settings.defaultcolor;
 
-	table.insert(connections, character.AncestryChanged:Connect(function(_, parent)
-		if not parent then
-			Cleanup(character)
-		end
-	end))
-
-	ESPs[character] = { box = box, connections = connections }
+           esp.boxoutline.Size = esp.box.Size;
+           esp.boxoutline.Position = esp.box.Position;
+       end
+   else
+       esp.box.Visible = false;
+       esp.boxoutline.Visible = false;
+   end
 end
 
--- Setup player to track character
-local function SetupPlayer(player)
-	if player == LocalPlayer then return end
-
-	player.CharacterAdded:Connect(function(character)
-		task.wait(0.5)
-		SetupCharacter(character)
-	end)
-
-	if player.Character then
-		SetupCharacter(player.Character)
-	end
+-- main
+for _, player in next, players:GetPlayers() do
+   if player ~= localPlayer then
+       createEsp(player);
+   end
 end
 
--- Cleanup on player leaving
-Players.PlayerRemoving:Connect(function(player)
-	if player.Character then
-		Cleanup(player.Character)
-	end
+players.PlayerAdded:Connect(function(player)
+   createEsp(player);
+end);
+
+players.PlayerRemoving:Connect(function(player)
+   removeEsp(player);
 end)
 
--- Setup existing players
-for _, player in ipairs(Players:GetPlayers()) do
-	SetupPlayer(player)
-end
+runService:BindToRenderStep("esp", Enum.RenderPriority.Camera.Value, function()
+   for player, drawings in next, espCache do
+       if settings.teamcheck and player.Team == localPlayer.Team then
+           continue;
+       end
 
--- Setup new players
-Players.PlayerAdded:Connect(SetupPlayer)
-
--- Main render loop for ESP boxes
-RunService.RenderStepped:Connect(function()
-	local camPos = Camera.CFrame.Position
-
-	for character, data in pairs(ESPs) do
-		local box = data.box
-
-		if not character or not character.Parent then
-			box.Visible = false
-			Cleanup(character)
-			continue
-		end
-
-		local hrp = character:FindFirstChild("HumanoidRootPart")
-		local head = character:FindFirstChild("Head")
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-
-		if not hrp or not head or not humanoid or humanoid.Health <= 0 then
-			box.Visible = false
-			continue
-		end
-
-		local distance = (camPos - hrp.Position).Magnitude
-		if distance > MAX_DISTANCE then
-			box.Visible = false
-			continue
-		end
-
-		local top, onScreenTop = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-		local bottom, onScreenBottom = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
-
-		if onScreenTop and onScreenBottom then
-			local height = math.abs(bottom.Y - top.Y)
-			local width = height / 2
-			box.Size = Vector2.new(width, height)
-			box.Position = Vector2.new(top.X - width / 2, top.Y)
-			box.Visible = true
-		else
-			box.Visible = false
-		end
-	end
-end)
-
--- Optional: Debug print number of Drawing objects every 5 seconds
-task.spawn(function()
-	while true do
-		local total = 0
-		for _, v in pairs(getgc(true)) do
-			if typeof(v) == "table" and v.__type == "DrawingObject" then
-				total += 1
-			end
-		end
-		print("[DEBUG] Drawing objects:", total)
-		task.wait(5)
-	end
+       if drawings and player ~= localPlayer then
+           updateEsp(player, drawings);
+       end
+   end
 end)
