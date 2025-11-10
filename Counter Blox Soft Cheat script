@@ -1,0 +1,195 @@
+--// Enemy-Only Smooth Visibility Highlight Script (Thin Outline) //--
+-- Place in StarterPlayerScripts (LocalScript)
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+
+--== Settings ==--
+local highlightSettings = {
+    FillColor = Color3.fromRGB(255, 0, 0),       -- Enemy default color
+    VisibleColor = Color3.fromRGB(0, 255, 0),    -- Enemy visible color
+    OutlineColor = Color3.fromRGB(180, 180, 180),-- Softer outline color
+    FillTransparency = 0.5,
+    OutlineTransparency = 0.6,                   -- Thinner-looking outline
+    HighlightLocalPlayer = false,
+    VisibilityCheckInterval = 0.2,
+    FadeSpeed = 5,  -- Higher = faster color transition
+}
+
+--== Helper: Create or get highlight ==--
+local function getHighlight(character)
+    if not character then return nil end
+    local highlight = character:FindFirstChildOfClass("Highlight")
+    if not highlight then
+        highlight = Instance.new("Highlight")
+        highlight.Adornee = character
+        highlight.FillTransparency = highlightSettings.FillTransparency
+        highlight.OutlineTransparency = highlightSettings.OutlineTransparency
+        highlight.OutlineColor = highlightSettings.OutlineColor
+        highlight.FillColor = highlightSettings.FillColor
+        highlight.Parent = character
+    end
+    return highlight
+end
+
+--== Improved visibility check (multi-point) ==--
+local function isVisible(character)
+    if not character or not Camera then return false end
+    local keyParts = {}
+    for _, partName in ipairs({"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso"}) do
+        local part = character:FindFirstChild(partName)
+        if part and part:IsA("BasePart") then
+            table.insert(keyParts, part)
+        end
+    end
+
+    local origin = Camera.CFrame.Position
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+    rayParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    rayParams.IgnoreWater = true
+
+    for _, part in ipairs(keyParts) do
+        local direction = part.Position - origin
+        local result = workspace:Raycast(origin, direction, rayParams)
+        if not result or result.Instance:IsDescendantOf(character) then
+            return true
+        end
+    end
+    return false
+end
+
+--== Check if player is enemy ==--
+local function isEnemy(player)
+    return player ~= LocalPlayer and (not LocalPlayer.Team or player.Team ~= LocalPlayer.Team)
+end
+
+--== Smoothly update highlight color ==--
+local function startVisibilityUpdate(character)
+    local highlight = getHighlight(character)
+    if not highlight then return end
+
+    RunService.Heartbeat:Connect(function(deltaTime)
+        if not character.Parent or not highlight.Parent then return end
+        local player = Players:GetPlayerFromCharacter(character)
+        if not player or not isEnemy(player) then
+            highlight:Destroy()
+            return
+        end
+
+        local targetColor = isVisible(character) and highlightSettings.VisibleColor or highlightSettings.FillColor
+        highlight.FillColor = highlight.FillColor:Lerp(targetColor, math.clamp(highlightSettings.FadeSpeed * deltaTime, 0, 1))
+    end)
+end
+
+--== Setup a player for highlighting ==--
+local function setupPlayer(player)
+    local function handleCharacter(character)
+        if not isEnemy(player) then
+            local oldHighlight = character:FindFirstChildOfClass("Highlight")
+            if oldHighlight then oldHighlight:Destroy() end
+            return
+        end
+        getHighlight(character)
+        startVisibilityUpdate(character)
+    end
+
+    player.CharacterAdded:Connect(handleCharacter)
+    if player.Character then
+        handleCharacter(player.Character)
+    end
+
+    player:GetPropertyChangedSignal("Team"):Connect(function()
+        if player.Character then
+            handleCharacter(player.Character)
+        end
+    end)
+end
+
+--== Initialize existing players ==--
+for _, player in pairs(Players:GetPlayers()) do
+    setupPlayer(player)
+end
+Players.PlayerAdded:Connect(setupPlayer)
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Camera = Workspace.CurrentCamera
+
+local localPlayer = Players.LocalPlayer
+
+-- Settings
+local FOVRadius = 40
+local Smoothing = 0.065 -- lower = faster, higher = slower
+local CheckTeam = true -- true = don't lock on teammates
+
+-- FOV Circle
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(0,255,0)
+FOVCircle.Thickness = 2
+FOVCircle.NumSides = 100
+FOVCircle.Radius = FOVRadius
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+
+-- Helper: screen center
+local function getScreenCenter()
+    return Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+end
+
+-- Helper: visibility check
+local function isVisible(targetHead)
+    local origin = Camera.CFrame.Position
+    local direction = (targetHead.Position - origin).Unit * 500
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {localPlayer.Character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+    local result = Workspace:Raycast(origin, direction, raycastParams)
+    if result then
+        return result.Instance:IsDescendantOf(targetHead.Parent)
+    end
+    return true
+end
+
+-- Main loop
+RunService.RenderStepped:Connect(function()
+    local screenCenter = getScreenCenter()
+    FOVCircle.Position = screenCenter
+
+    local closestPlayer = nil
+    local shortestDistance = FOVRadius
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= localPlayer and player.Character and player.Character:FindFirstChild("Head") then
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                -- Team check
+                if not (CheckTeam and localPlayer.Team and player.Team == localPlayer.Team) then
+                    local head = player.Character.Head
+                    local headScreenPos = Camera:WorldToViewportPoint(head.Position)
+                    local distance = (Vector2.new(headScreenPos.X, headScreenPos.Y) - screenCenter).Magnitude
+
+                    if distance < shortestDistance and isVisible(head) then
+                        shortestDistance = distance
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+
+    if closestPlayer and closestPlayer.Character then
+        local headPos = closestPlayer.Character.Head.Position
+        local camPos = Camera.CFrame.Position
+        local targetDir = (headPos - camPos).Unit
+
+        local currentDir = Camera.CFrame.LookVector
+        local newDir = currentDir:Lerp(targetDir, Smoothing)
+        Camera.CFrame = CFrame.new(camPos, camPos + newDir)
+    end
+end)
