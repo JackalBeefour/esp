@@ -12,7 +12,7 @@ local highlightSettings = {
     VisibleColor = Color3.fromRGB(0, 255, 0),    -- Enemy visible color
     OutlineColor = Color3.fromRGB(180, 180, 180),-- Softer outline color
     FillTransparency = 0.5,
-    OutlineTransparency = 0.6,                   -- Thinner-looking outline
+    OutlineTransparency = 0.9,                   -- Thinner-looking outline
     HighlightLocalPlayer = false,
     VisibilityCheckInterval = 0.2,
     FadeSpeed = 5,  -- Higher = faster color transition
