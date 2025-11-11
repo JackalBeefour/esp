@@ -117,6 +117,7 @@ Players.PlayerAdded:Connect(setupPlayer)
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local Camera = Workspace.CurrentCamera
 
@@ -124,12 +125,15 @@ local localPlayer = Players.LocalPlayer
 
 -- Settings
 local FOVRadius = 40
-local Smoothing = 0.065 -- lower = faster, higher = slower
+local Smoothing = 0.05 -- lower = faster, higher = slower
 local CheckTeam = true -- true = don't lock on teammates
+
+-- State
+local AimbotEnabled = true -- on by default
 
 -- FOV Circle
 local FOVCircle = Drawing.new("Circle")
-FOVCircle.Color = Color3.fromRGB(0,255,0)
+FOVCircle.Color = AimbotEnabled and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
 FOVCircle.Thickness = 2
 FOVCircle.NumSides = 100
 FOVCircle.Radius = FOVRadius
@@ -156,10 +160,21 @@ local function isVisible(targetHead)
     return true
 end
 
+-- Toggle handler (K key)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.K then
+        AimbotEnabled = not AimbotEnabled
+        FOVCircle.Color = AimbotEnabled and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+    end
+end)
+
 -- Main loop
 RunService.RenderStepped:Connect(function()
     local screenCenter = getScreenCenter()
     FOVCircle.Position = screenCenter
+
+    if not AimbotEnabled then return end
 
     local closestPlayer = nil
     local shortestDistance = FOVRadius
@@ -171,12 +186,13 @@ RunService.RenderStepped:Connect(function()
                 -- Team check
                 if not (CheckTeam and localPlayer.Team and player.Team == localPlayer.Team) then
                     local head = player.Character.Head
-                    local headScreenPos = Camera:WorldToViewportPoint(head.Position)
-                    local distance = (Vector2.new(headScreenPos.X, headScreenPos.Y) - screenCenter).Magnitude
-
-                    if distance < shortestDistance and isVisible(head) then
-                        shortestDistance = distance
-                        closestPlayer = player
+                    local headScreenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                    if onScreen then
+                        local distance = (Vector2.new(headScreenPos.X, headScreenPos.Y) - screenCenter).Magnitude
+                        if distance < shortestDistance and isVisible(head) then
+                            shortestDistance = distance
+                            closestPlayer = player
+                        end
                     end
                 end
             end
@@ -193,3 +209,4 @@ RunService.RenderStepped:Connect(function()
         Camera.CFrame = CFrame.new(camPos, camPos + newDir)
     end
 end)
+
